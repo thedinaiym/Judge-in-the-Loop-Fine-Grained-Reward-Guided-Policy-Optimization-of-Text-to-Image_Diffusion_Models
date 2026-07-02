@@ -1,0 +1,32 @@
+# Core ML
+torch>=2.3.0
+torchvision
+accelerate>=0.30.0
+diffusers>=0.29.0
+transformers>=4.46.0   # Q-Judger (Qwen/Qwen-Image-Bench) может требовать более свежую
+                         # версию — сверьтесь с requirements.txt репозитория
+                         # github.com/QwenLM/Qwen-Image-Bench перед запуском
+peft>=0.11.0
+safetensors
+
+# Q-Judger (реальный чекпоинт Qwen/Qwen-Image-Bench, 27B) и датасет промптов
+datasets>=2.19.0
+huggingface_hub>=0.23.0
+qwen-vl-utils
+einops
+
+# RL utils / logging
+numpy
+pillow
+pyyaml
+wandb
+tqdm
+
+# optional: orchestration for multi-GPU / multi-worker rollout (Этап 7 в README)
+ray>=2.9.0
+
+# optional: высокопроизводительный batch-backend для Q-Judger, та же среда,
+# которой продюсировался официальный датасет (см. src/qjudger_official/
+# ms_swift_backend.py). Не обязателен для основного transformers-пути в
+# judger.py — раскомментируйте при переходе на ms-swift backend.
+# ms-swift>=4.0.0

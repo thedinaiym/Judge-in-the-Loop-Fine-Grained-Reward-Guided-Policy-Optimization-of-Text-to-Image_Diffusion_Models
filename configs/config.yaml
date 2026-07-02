@@ -1,0 +1,58 @@
+# ── Модели ─────────────────────────────────────────────────────────────────
+policy:
+  model: "black-forest-labs/FLUX.1-dev"   # gated — нужна принятая лицензия
+  device: "cuda:0"
+  dtype: "bf16"
+  num_steps: 20          # шагов ODE при генерации
+  guidance_scale: 3.5
+  height: 1024
+  width: 1024
+
+lora:
+  rank: 64
+  alpha: 64
+  target_modules: ["to_q", "to_k", "to_v", "to_out.0"]
+  dropout: 0.0
+
+judger:
+  model: "Qwen/Qwen-Image-Bench"   # 27B — грузим в INT4 на 40GB карте
+  device: "cuda:1"
+  # load_in_4bit: true  → ~14GB VRAM  (для 40GB карт — рекомендуется)
+  # load_in_8bit: true  → ~27GB VRAM  (для 80GB карт можно использовать)
+  # Ничего из этого → BF16, ~54GB    (только для 80GB карт)
+  quantization: "4bit"    # "4bit" | "8bit" | "none"
+  max_new_tokens: 1024    # для отладки; 4096 — официальное значение (медленнее)
+  enable_thinking: true
+
+# ── Данные ──────────────────────────────────────────────────────────────────
+prompts:
+  dataset: "Qwen/Qwen-Image-Bench"  # 1000 промптов с dims_en разметкой
+  split: "test"
+  language: "en"
+
+# ── Rollout ─────────────────────────────────────────────────────────────────
+rollout:
+  prompts_per_step: 4     # промптов на один RL-шаг
+  samples_per_prompt: 8   # n сэмплов на промпт (для group-relative advantage)
+
+# ── Обучение ────────────────────────────────────────────────────────────────
+training:
+  algorithm: "online_dpo"   # "online_dpo" (стабильнее) | "grpo"
+  total_steps: 200
+  lr: 1.0e-4
+  weight_decay: 0.01
+  grad_clip: 1.0
+  kl_beta: 0.04             # штраф за KL-расстояние от исходной политики
+  dpo_beta: 0.1
+  grpo_clip_eps: 0.2        # используется только при algorithm: grpo
+  sde_noise_scale: 0.02     # σ_t для stochastic ODE relaxation (только grpo)
+  gradient_checkpointing: true
+  seed: 42
+
+# ── Логирование / чекпоинты ──────────────────────────────────────────────────
+output:
+  dir: "./outputs"
+  save_every: 20    # сохранять LoRA-чекпоинт каждые N шагов
+  log_every: 1
+  wandb: false      # true — включить wandb logging
+  wandb_project: "q-judger-rl"
