@@ -16,13 +16,10 @@ lora:
 
 judger:
   model: "Qwen/Qwen-Image-Bench"   # 27B — грузим в INT4 на 40GB карте
-  device: "cuda:1"
-  # load_in_4bit: true  → ~14GB VRAM  (для 40GB карт — рекомендуется)
-  # load_in_8bit: true  → ~27GB VRAM  (для 80GB карт можно использовать)
-  # Ничего из этого → BF16, ~54GB    (только для 80GB карт)
-  quantization: "4bit"    # "4bit" | "8bit" | "none"
-  max_new_tokens: 1024    # для отладки; 4096 — официальное значение (медленнее)
-  enable_thinking: true
+  device: "cuda:0"      #  0
+  quantization: "4bit"  #  4bit
+  max_new_tokens: 512   #  smoke-test
+
 
 # ── Данные ──────────────────────────────────────────────────────────────────
 prompts:
