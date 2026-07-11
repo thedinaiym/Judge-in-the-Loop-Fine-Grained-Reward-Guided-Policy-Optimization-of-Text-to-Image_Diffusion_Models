@@ -424,3 +424,22 @@ reward-guided-diffusion-rl/
   gated) лицензия Black Forest Labs, требует принятия условий на странице
   модели на Hugging Face и собственного HF-токена. Это ограничение
   накладывается black-forest-labs, не этим проектом.
+
+## Results (preliminary, 10 GRPO steps)
+
+| Metric | Value |
+|---|---|
+| Parse rate (Q-Judger) | **1.000** (30/30 pairs) |
+| Gradient norm | 332 – 764 |
+| Policy–reference KL | 0 → 256 |
+| Mean reward | 32.11 ± 11.62 |
+| OLS slope | +1.34/step (r² = 0.12, *not significant*) |
+| Hardware | 1× A100 80GB · 670 s/step · 1.86 h |
+
+⚠️ Per-step reward is **confounded by prompt difficulty** (1 prompt/step) and
+must not be read as a learning curve. No baseline comparison yet.
+
+- Metrics: `results/metrics.jsonl`
+- Full log: `results/train.log`
+- Config: `results/config_final.yaml`
+- Trained adapter: https://huggingface.co/thedinaiym/judge-in-the-loop-flux-lora
