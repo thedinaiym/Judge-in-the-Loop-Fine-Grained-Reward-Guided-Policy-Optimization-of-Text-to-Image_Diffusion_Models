@@ -186,10 +186,27 @@ def main():
             sample = policy.sample(prompt, n=n)
 
             # Scoring: Q-Judger оценивает каждое изображение
+            # OFFLOAD: FLUX -> CPU, судья -> GPU
+            # траекторию держим на CPU, иначе VRAM не освободится
+            sample.trajectory = [x.detach().cpu() for x in sample.trajectory]
+            if sample.log_probs is not None:
+                sample.log_probs = sample.log_probs.detach()
+            policy.pipe.to("cpu")
+            import gc; gc.collect()
+            torch.cuda.empty_cache()
+            judger.model.to("cuda:0")
+            judger.device = "cuda:0"
+
             judge_results = judger.score_batch(
                 sample.images, prompt, dims_en=dims_en
             )
 
+            # OFFLOAD назад: судья -> CPU, FLUX -> GPU
+            judger.model.to("cpu")
+            torch.cuda.empty_cache()
+            policy.pipe.to("cuda:0")
+
+            print("[DEBUG] rewards:", [jr.scalar_reward for jr in judge_results])
             rewards = torch.tensor(
                 [jr.scalar_reward for jr in judge_results],
                 device=policy.device,

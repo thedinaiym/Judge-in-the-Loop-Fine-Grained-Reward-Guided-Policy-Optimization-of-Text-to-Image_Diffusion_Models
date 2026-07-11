@@ -74,24 +74,49 @@ class DiffusionPolicy:
         use_sde = (self.algorithm == "grpo")
 
         scheduler = self.pipe.scheduler
-        scheduler.set_timesteps(self.num_steps, device=self.device)
+        # FLUX flow-matching: нужен mu (dynamic shifting)
+        from diffusers.pipelines.flux.pipeline_flux import calculate_shift
+        _seq_len = (self.height // 16) * (self.width // 16)
+        _mu = calculate_shift(
+            _seq_len,
+            scheduler.config.get("base_image_seq_len", 256),
+            scheduler.config.get("max_image_seq_len", 4096),
+            scheduler.config.get("base_shift", 0.5),
+            scheduler.config.get("max_shift", 1.15),
+        )
+        scheduler.set_timesteps(self.num_steps, device=self.device, mu=_mu)
         timesteps = scheduler.timesteps
 
         latents = self._init_latents(n)
         initial_noise = latents.clone()
         prompt_embeds, pooled = self._encode(prompt, n)
 
+        # --- FLUX: упаковка латентов + RoPE ids ---
+        from diffusers import FluxPipeline as _FP
+        _h = self.height // 16
+        _w = self.width // 16
+        latents = _FP._pack_latents(latents, n, 16, _h * 2, _w * 2)
+        initial_noise = latents.clone()
+        img_ids = _FP._prepare_latent_image_ids(n, _h, _w, self.device, self.dtype)
+        txt_ids = torch.zeros(prompt_embeds.shape[1], 3,
+                              device=self.device, dtype=self.dtype)
+        guidance = torch.full((n,), self.guidance_scale,
+                              device=self.device, dtype=self.dtype)
+
         trajectory = [latents.clone()]
         log_prob_sum = torch.zeros(n, device=self.device) if use_sde else None
 
         for i, t in enumerate(timesteps):
             dt = self._dt(scheduler, i)
-            with torch.set_grad_enabled(True):
+            with torch.no_grad():
                 vel = self.pipe.transformer(
                     hidden_states=latents,
-                    timestep=t.expand(n),
+                    timestep=t.expand(n).to(latents.dtype) / 1000,
+                    guidance=guidance,
                     encoder_hidden_states=prompt_embeds,
                     pooled_projections=pooled,
+                    img_ids=img_ids,
+                    txt_ids=txt_ids,
                     return_dict=False,
                 )[0]
 
@@ -127,10 +152,29 @@ class DiffusionPolicy:
     ) -> torch.Tensor:
         """Пересчёт log-prob той же траектории под текущими весами LoRA."""
         scheduler = self.pipe.scheduler
-        scheduler.set_timesteps(self.num_steps, device=self.device)
+        from diffusers.pipelines.flux.pipeline_flux import calculate_shift
+        _seq_len = (self.height // 16) * (self.width // 16)
+        _mu = calculate_shift(
+            _seq_len,
+            scheduler.config.get("base_image_seq_len", 256),
+            scheduler.config.get("max_image_seq_len", 4096),
+            scheduler.config.get("base_shift", 0.5),
+            scheduler.config.get("max_shift", 1.15),
+        )
+        scheduler.set_timesteps(self.num_steps, device=self.device, mu=_mu)
         timesteps = scheduler.timesteps
         prompt_embeds, pooled = self._encode(prompt, n)
 
+        # offload: траектория лежит на CPU -> обратно на GPU
+        trajectory = [x.to(self.device, dtype=self.dtype) for x in trajectory]
+        from diffusers import FluxPipeline as _FP
+        _h = self.height // 16
+        _w = self.width // 16
+        img_ids = _FP._prepare_latent_image_ids(n, _h, _w, self.device, self.dtype)
+        txt_ids = torch.zeros(prompt_embeds.shape[1], 3,
+                              device=self.device, dtype=self.dtype)
+        guidance = torch.full((n,), self.guidance_scale,
+                              device=self.device, dtype=self.dtype)
         logp_sum = torch.zeros(n, device=self.device)
         for i, t in enumerate(timesteps):
             dt = self._dt(scheduler, i)
@@ -138,9 +182,12 @@ class DiffusionPolicy:
             xt1 = trajectory[i + 1]
             vel = self.pipe.transformer(
                 hidden_states=xt,
-                timestep=t.expand(n),
+                timestep=t.expand(n).to(xt.dtype) / 1000,
+                guidance=guidance,
                 encoder_hidden_states=prompt_embeds,
                 pooled_projections=pooled,
+                img_ids=img_ids,
+                txt_ids=txt_ids,
                 return_dict=False,
             )[0]
             mean_next = xt + vel * dt
@@ -161,7 +208,8 @@ class DiffusionPolicy:
     # ------------------------------------------------------------------ #
     def _init_latents(self, n: int) -> torch.Tensor:
         h, w = self.height // 8, self.width // 8
-        in_ch = self.pipe.transformer.config.in_channels
+        # FLUX VAE latents = 16 каналов (transformer.in_channels=64 — это УЖЕ упакованные)
+        in_ch = self.pipe.vae.config.latent_channels  # 16
         return torch.randn(n, in_ch, h, w, device=self.device, dtype=self.dtype)
 
     def _encode(self, prompt: str, n: int):
@@ -173,10 +221,13 @@ class DiffusionPolicy:
         return embeds, pooled
 
     def _decode(self, latents: torch.Tensor) -> list[Image.Image]:
+        from diffusers import FluxPipeline as _FP
+        vae = self.pipe.vae
+        vsf = 2 ** (len(vae.config.block_out_channels) - 1)
+        lat = _FP._unpack_latents(latents, self.height, self.width, vsf)
+        lat = lat / vae.config.scaling_factor + vae.config.shift_factor
         with torch.no_grad():
-            imgs = self.pipe.vae.decode(
-                latents / self.pipe.vae.config.scaling_factor
-            ).sample
+            imgs = vae.decode(lat).sample
         imgs = (imgs / 2 + 0.5).clamp(0, 1)
         imgs = (imgs.permute(0, 2, 3, 1) * 255).byte().cpu().numpy()
         return [Image.fromarray(img) for img in imgs]

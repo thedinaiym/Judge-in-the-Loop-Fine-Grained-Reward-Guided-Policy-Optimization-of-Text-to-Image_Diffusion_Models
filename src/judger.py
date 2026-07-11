@@ -97,7 +97,8 @@ class QJudger:
             device_map=self.device if bnb_cfg else None,
         )
         if bnb_cfg is None:
-            self.model = self.model.to(self.device)
+            # OFFLOAD: держим судью на CPU, поднимаем на GPU только на время оценки
+            self.model = self.model.to("cpu")
 
         self.model.eval()
         for p in self.model.parameters():

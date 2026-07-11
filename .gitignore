@@ -1,2 +1,8 @@
-docs/
-scripts/setup_vast.sh
+*.safetensors
+*.tar.gz
+*.bak
+*.bak2
+hf_cache/
+models/
+__pycache__/
+imgs/

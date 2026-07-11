@@ -84,6 +84,8 @@ def online_dpo_step(
         return {"loss": 0.0, "mean_reward": 0.0, "mean_margin": 0.0}
 
     (total_loss / valid_count).backward()
+    _gn = sum((p.grad.norm()**2).item() for p in policy.trainable_params() if p.grad is not None) ** 0.5
+    print(f"[DEBUG] grad_norm = {_gn:.6f}")
     torch.nn.utils.clip_grad_norm_(policy.trainable_params(), grad_clip)
     optimizer.step()
 
@@ -145,6 +147,8 @@ def grpo_step(
         return {"loss": 0.0, "mean_reward": 0.0, "mean_kl": 0.0}
 
     (total_loss / valid_count).backward()
+    _gn = sum((p.grad.norm()**2).item() for p in policy.trainable_params() if p.grad is not None) ** 0.5
+    print(f"[DEBUG] grad_norm = {_gn:.6f}")
     torch.nn.utils.clip_grad_norm_(policy.trainable_params(), grad_clip)
     optimizer.step()
 
